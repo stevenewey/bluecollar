@@ -13,16 +13,16 @@ import sys
 import os
 import logging
 import time
-import argparse
 import json
 import signal
 
 # thid party modules
 import redis
 import gevent
+import gevent.monkey
 
 # bluecollar modules
-import prototype
+from bluecollar import prototype
 
 # our PID will be checked in redis to see if we should die
 _PID = os.getpid()
@@ -34,17 +34,6 @@ if os.environ.get('DEBUG'):
     logging.basicConfig(level=logging.DEBUG, format=_LOG_FORMAT)
 else:
     logging.basicConfig(level=logging.INFO, format=_LOG_FORMAT)
-
-# check we've got a module to argue with
-ARGPARSER = argparse.ArgumentParser(description='BlueCollar worker process')
-ARGPARSER.add_argument('module', metavar='module_name', type=str,
-        nargs=1, help='Module to be exposed via Redis API')
-ARGS = ARGPARSER.parse_args()
-try:
-    MODULE = __import__(ARGS.module[0])
-except ImportError:
-    logging.error('Unable to import module %s', ARGS.module[0])
-    sys.exit(1)
 
 # redis connection
 _REDIS_HOST = os.environ.get('BC_REDISHOST', 'localhost')
@@ -64,20 +53,26 @@ _WORKER_LIST = os.environ.get('BC_WORKERLIST', 'list_bcworkers')
 _INST_CACHE = {}
 # cache of executable things
 _EXEC_CACHE = {}
+# greenlet threads
+_THREADS = []
 
 def clean_exit(*args):
     """Clean up on exit"""
-    logging.info('User exited')
+    logging.info('User exited: %s', args)
     _REDIS.srem(_WORKER_LIST, _PID)
     sys.exit(0)
 signal.signal(signal.SIGTERM, clean_exit)
 
-def route_to_class_or_function(path, module):
+def route_to_class_or_function(path, module=None):
     """Follow the dot-notation string to find the class or function"""
     # maintain route to module for submodule imports
-    full_path = module.__name__
+    if module:
+        full_path = '%s.' % module.__name__
+    else:
+        full_path = ''
     items = path.split('.')
-    if (hasattr(module, items[0]) and
+    if (module and
+            hasattr(module, items[0]) and
             ((callable(getattr(module, items[0])) and
                 len(items) == 1) or
             (type(getattr(module, items[0])) is type and
@@ -87,7 +82,8 @@ def route_to_class_or_function(path, module):
         # this module contains a callable function or class that contains
         # a callable method and there's no leftover items
         return getattr(module, items[0])
-    if (hasattr(module, items[0]) and
+    if (module and
+            hasattr(module, items[0]) and
             len(items) > 1 and
             hasattr(getattr(module, items[0]), items[1])):
         # we can find the next item down, so go look in there
@@ -99,7 +95,7 @@ def route_to_class_or_function(path, module):
         submodule = None
         try:
             submodule = __import__(
-                    '%s.%s' % (full_path, items[0]),
+                    '%s%s' % (full_path, items[0]),
                     fromlist=[str(items[1])])
         except ImportError:
             pass
@@ -109,79 +105,110 @@ def route_to_class_or_function(path, module):
                 submodule)
     return False
 
-# main loop
-if __name__ == '__main__':
-    # big old exception catcher for redis failing
-    try:
-        # add worker to list
-        _REDIS.sadd(_WORKER_LIST, _PID)
+def child(func, args, kwargs, reply_to):
+    """Child function performs request function and handles response"""
+    time_before = time.time()
+    response = func(*args, **kwargs)
+    time_after = time.time()
+    if reply_to:
+        pass
+    logging.debug('%s executed in %s', func, time_after-time_before)
 
+
+def main():
+    # commence monkey patching of sockets for gevent
+    gevent.monkey.patch_socket()
+    # catch redis errors and keyboard interrupts
+    try:
+        _REDIS.sadd(_WORKER_LIST, _PID)
+        # main loop
         while True:
+            # if we're no longer welcome, break out of the main loop
             if not _REDIS.sismember(_WORKER_LIST, _PID):
-                # we're no longer welcome, break out of the main loop
-                logging.info('PID removed from worker list, exiting.')
+                logging.info(
+                    'Worker PID released, waiting for threads, then exiting.')
+                for thread in _THREADS:
+                    thread.join()
                 break
 
+            # clean up completed tasks
+            for thread in _THREADS:
+                if thread.ready():
+                    _THREADS.remove(thread)
+                    logging.debug('GC: %s', thread)
+
             # grab the next request from the worker queue, or wait
-            REQUEST = _REDIS.blpop(_WORKER_QUEUE, 15)
-            if not REQUEST:
+            request = _REDIS.blpop(_WORKER_QUEUE, 5)
+            if not request:
                 # timeout waiting for request, lets us run the loop
                 # again and check if we should still be here
                 continue
 
             # request should be JSON
             try:
-                REQUEST = json.loads(REQUEST[1])
+                request = json.loads(request[1])
             except ValueError:
-                logging.error('Invalid JSON for request: %s', REQUEST[1])
+                logging.error('Invalid JSON for request: %s', request[1])
                 continue
 
             # request should be a dict and have a request key with list val
-            if (type(REQUEST) is not dict or
-                    not REQUEST.has_key('request') or
-                    type(REQUEST['request']) is not list or
-                    len(REQUEST['request']) is 0 or
-                    type(REQUEST['request'][0]) not in [unicode, str]):
-                logging.error('Missing or invalid request: %s', REQUEST)
+            if (type(request) is not dict or
+                    not request.has_key('method') or
+                    type(request['method']) not in [unicode, str]):
+                logging.error('Missing or invalid method: %s', request)
                 continue
-            METHOD = REQUEST['request'][0]
+            method = request['method']
 
             # attempt to resolve the requested function
             # keeping a cache of them along the way
-            if _EXEC_CACHE.has_key(METHOD):
-                EXECUTABLE = _EXEC_CACHE[METHOD]
+            if _EXEC_CACHE.has_key(method):
+                executable = _EXEC_CACHE[method]
             else:
-                EXECUTABLE = route_to_class_or_function(
-                    METHOD, MODULE)
-                _EXEC_CACHE[METHOD] = EXECUTABLE
-                if not EXECUTABLE:
+                executable = route_to_class_or_function(
+                    method)
+                _EXEC_CACHE[method] = executable
+                if not executable:
                     logging.error('Failed to find class or function at %s',
-                        METHOD)
+                        method)
                     continue
 
             # instantiate if we're dealing with a class
-            if type(EXECUTABLE) is type:
-                if issubclass(EXECUTABLE, prototype.Cacheable):
+            if type(executable) is type:
+                if issubclass(executable, prototype.Cacheable):
                     # inherits cacheable, we only need one
-                    if not _INST_CACHE.has_key(METHOD):
+                    if not _INST_CACHE.has_key(method):
                         # we don't have one yet, so make one
-                        _INST_CACHE[METHOD] = EXECUTABLE()
+                        _INST_CACHE[method] = executable()
                         logging.debug('New cacheable instance: %s',
-                                _INST_CACHE[METHOD])
-                    INSTANCE = _INST_CACHE[METHOD]
+                                _INST_CACHE[method])
+                    instance = _INST_CACHE[method]
                 else:
                     # instantiate a regular class every call
-                    INSTANCE = EXECUTABLE()
-                    logging.debug('New instance: %s', INSTANCE)
+                    instance = executable()
+                    logging.debug('New instance: %s', instance)
                 # get the instance method we care about
-                FUNC = getattr(INSTANCE, METHOD.split('.')[-1])
+                func = getattr(instance, method.split('.')[-1])
             else:
                 # a normal function (outside a class)
-                FUNC = EXECUTABLE
+                func = executable
 
-            logging.info('Requested class/func: %s', FUNC)
+            # decode the arguments
+            args = request.get('args', [])
+            kwargs = request.get('kwargs', {})
+            reply_to = request.get('reply_channel', None)
+
+            # execute the function in a greenlet
+            _THREADS.append(
+                gevent.Greenlet.spawn(child, func, args, kwargs, reply_to))
+            logging.debug('Requested class/func: %s %s %s', func, args, kwargs)
+
 
     except redis.exceptions.ConnectionError, message:
+        # redis isn't there or went away
+        # wait 5 secs before exit to not upset upstart
+        logging.error('Redis unavailable: %s', message)
+        time.sleep(5)
+        sys.exit(1)
         # redis isn't there or went away
         # wait 5 secs before exit to not upset upstart
         logging.error('Redis unavailable: %s', message)
