@@ -28,8 +28,8 @@ from bluecollar import prototype
 _PID = os.getpid()
 
 # logging level and format
-_LOG_FORMAT = '%(asctime)s\tPID:%(process)d\t%(filename)s\t%(levelname)s\t\
-%(relativeCreated)dms\t%(message)s'
+_LOG_FORMAT = '%(asctime)s:%(process)d:%(filename)s:%(levelname)s:\
+%(relativeCreated)dms:%(message)s'
 if os.environ.get('DEBUG'):
     logging.basicConfig(level=logging.DEBUG, format=_LOG_FORMAT)
 else:
@@ -107,11 +107,28 @@ def route_to_class_or_function(path, module=None):
 
 def child(func, args, kwargs, reply_to):
     """Child function performs request function and handles response"""
+    logging.debug('%s %s %s', func, args, kwargs)
     time_before = time.time()
-    response = func(*args, **kwargs)
+    try:
+        response = func(*args, **kwargs)
+    except Exception, message:
+        # pass any exceptions from the function call to the reply channel
+        if reply_to:
+            _REDIS.rpush(reply_to, json.dumps(str(message)))
+        raise
     time_after = time.time()
     if reply_to:
-        pass
+        try:
+            _REDIS.rpush(reply_to, json.dumps(response))
+        except TypeError:
+            logging.error('Unable to JSON encode response %s from %s',
+                    response, func)
+        except redis.exceptions.ConnectionError, message:
+            logging.error('Lost Redis connection, not sending %s from %s',
+                    response, func)
+    elif response:
+        logging.debug('No response path for reply: %s from %s',
+                response, func)
     logging.debug('%s executed in %s', func, time_after-time_before)
 
 
@@ -200,8 +217,6 @@ def main():
             # execute the function in a greenlet
             _THREADS.append(
                 gevent.Greenlet.spawn(child, func, args, kwargs, reply_to))
-            logging.debug('Requested class/func: %s %s %s', func, args, kwargs)
-
 
     except redis.exceptions.ConnectionError, message:
         # redis isn't there or went away
