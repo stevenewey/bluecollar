@@ -19,16 +19,16 @@ class Calculator(Cacheable):
 
     def add(self, op1, op2=None):
         """Simple addition of two operators"""
-        op2 = op2 if op2 is not None else self.last_result
-        self.last_result = op1 + op2
+        op2 = int(op2) if op2 is not None else self.last_result
+        self.last_result = int(op1) + op2
         return self.last_result
 
     def subtract(self, op1, op2=None):
         """Simple subtraction of two operators"""
         if not op2:
-            self.last_result = self.last_result - op1
+            self.last_result = self.last_result - int(op1)
         else:
-            self.last_result = op1 - op2
+            self.last_result = int(op1) - int(op2)
         return self.last_result
 
     def one_minute(self):

@@ -37,18 +37,18 @@ else:
     logging.basicConfig(level=logging.INFO, format=_LOG_FORMAT)
 
 # redis connection
-_REDIS_HOST = os.environ.get('BC_REDISHOST', 'localhost')
+REDIS_HOST = os.environ.get('BC_REDISHOST', 'localhost')
 try:
-    _REDIS_PORT = abs(int(os.environ.get('BC_REDISPORT', 6379)))
-    _REDIS_DB = int(os.environ.get('BC_REDISDB', 0))
-    if _REDIS_DB < 0 or _REDIS_DB > 15:
+    REDIS_PORT = abs(int(os.environ.get('BC_REDISPORT', 6379)))
+    REDIS_DB = int(os.environ.get('BC_REDISDB', 0))
+    if REDIS_DB < 0 or REDIS_DB > 15:
         raise ValueError("Redis DBs must be 0-15.")
 except ValueError, message:
     logging.error(message)
     sys.exit(1)
-_REDIS = redis.Redis(_REDIS_HOST, _REDIS_PORT, _REDIS_DB)
-_WORKER_QUEUE = os.environ.get('BC_QUEUE', 'list_bcqueue')
-_WORKER_LIST = os.environ.get('BC_WORKERLIST', 'list_bcworkers')
+REDIS = redis.Redis(REDIS_HOST, REDIS_PORT, REDIS_DB)
+WORKER_QUEUE = os.environ.get('BC_QUEUE', 'list_bcqueue')
+WORKER_LIST = os.environ.get('BC_WORKERLIST', 'list_bcworkers')
 
 # instance cache for reusable classes
 _INST_CACHE = {}
@@ -60,7 +60,7 @@ _THREADS = []
 def clean_exit(*args):
     """Clean up on exit"""
     logging.info('User exited: %s', args)
-    _REDIS.srem(_WORKER_LIST, _PID)
+    REDIS.srem(WORKER_LIST, _PID)
     sys.exit(0)
 signal.signal(signal.SIGTERM, clean_exit)
 
@@ -115,12 +115,12 @@ def child(func, args, kwargs, reply_to):
     except Exception, message:
         # pass any exceptions from the function call to the reply channel
         if reply_to:
-            _REDIS.rpush(reply_to, json.dumps(str(message)))
+            REDIS.rpush(reply_to, json.dumps(str(message)))
         raise
     time_after = time.time()
     if reply_to:
         try:
-            _REDIS.rpush(reply_to, json.dumps(response))
+            REDIS.rpush(reply_to, json.dumps(response))
         except TypeError:
             logging.error('Unable to JSON encode response %s from %s',
                     response, func)
@@ -135,12 +135,13 @@ def child(func, args, kwargs, reply_to):
 
 def main():
     # catch redis errors and keyboard interrupts
+    logging.info('Worker started')
     try:
-        _REDIS.sadd(_WORKER_LIST, _PID)
+        REDIS.sadd(WORKER_LIST, _PID)
         # main loop
         while True:
             # if we're no longer welcome, break out of the main loop
-            if not _REDIS.sismember(_WORKER_LIST, _PID):
+            if not REDIS.sismember(WORKER_LIST, _PID):
                 logging.info(
                     'Worker PID released, waiting for threads, then exiting.')
                 for thread in _THREADS:
@@ -157,7 +158,7 @@ def main():
             gevent.sleep()
 
             # grab the next request from the worker queue, or wait
-            request = _REDIS.blpop(_WORKER_QUEUE, 5)
+            request = REDIS.blpop(WORKER_QUEUE, 5)
             if not request:
                 # timeout waiting for request, lets us run the loop
                 # again and check if we should still be here
@@ -178,6 +179,11 @@ def main():
                 continue
             method = request['method']
 
+            # decode the arguments
+            args = request.get('args', [])
+            kwargs = request.get('kwargs', {})
+            reply_to = request.get('reply_channel', None)
+
             # attempt to resolve the requested function
             # keeping a cache of them along the way
             if _EXEC_CACHE.has_key(method):
@@ -189,6 +195,9 @@ def main():
                 if not executable:
                     logging.error('Failed to find class or function at %s',
                         method)
+                    if reply_to:
+                        REDIS.rpush(reply_to, json.dumps(
+                            'Failed to find class or function at %s' % method))
                     continue
 
             # instantiate if we're dealing with a class
@@ -210,11 +219,6 @@ def main():
             else:
                 # a normal function (outside a class)
                 func = executable
-
-            # decode the arguments
-            args = request.get('args', [])
-            kwargs = request.get('kwargs', {})
-            reply_to = request.get('reply_channel', None)
 
             # execute the function in a greenlet
             _THREADS.append(
