@@ -17,9 +17,10 @@ import json
 import signal
 
 # thid party modules
-import redis
 import gevent
 import gevent.monkey
+gevent.monkey.patch_socket()
+import redis
 
 # bluecollar modules
 from bluecollar import prototype
@@ -133,8 +134,6 @@ def child(func, args, kwargs, reply_to):
 
 
 def main():
-    # commence monkey patching of sockets for gevent
-    gevent.monkey.patch_socket()
     # catch redis errors and keyboard interrupts
     try:
         _REDIS.sadd(_WORKER_LIST, _PID)
@@ -153,6 +152,9 @@ def main():
                 if thread.ready():
                     _THREADS.remove(thread)
                     logging.debug('GC: %s', thread)
+
+            # yield for outstanding threads
+            gevent.sleep()
 
             # grab the next request from the worker queue, or wait
             request = _REDIS.blpop(_WORKER_QUEUE, 5)
