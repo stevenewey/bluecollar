@@ -3,7 +3,7 @@
 """
     BlueCollar
 
-    Gevent WSGI Server for interfacing a BlueCollar worker with HTTP
+    Gevent WSGI Server for exposing a BlueCollar worker with HTTP RPC
     Use with gunicorn:
      gunicorn -b 127.0.0.1:8001 -k gevent bluecollar.http:application
 """
@@ -20,8 +20,8 @@ import uuid
 import gevent
 import gevent.monkey
 gevent.monkey.patch_socket()
-import redis
 from gevent.pywsgi import WSGIServer
+from geventwebsocket.handler import WebSocketHandler
 
 # bluecollar modules
 import bluecollar.worker as bcenv
@@ -66,7 +66,8 @@ def application(env, start_response):
             error = 'Unable to parse JSON data in POST.'
         if not error:
             if type(request) != dict:
-                error = 'Expected dict in POST data, received %s' % type(request)
+                error = \
+                    'Expected dict in POST data, received %s' % type(request)
             request['reply_channel'] = reply_channel
             bcenv.REDIS.rpush(bcenv.WORKER_QUEUE, json.dumps(request))
             response = bcenv.REDIS.blpop(reply_channel, _REQUEST_TIMEOUT)
@@ -84,5 +85,8 @@ def application(env, start_response):
 
 if __name__ == '__main__':
     logging.info('BlueCollar HTTP Server at %s:%d', _HTTP_HOST, _HTTP_PORT)
-    WSGIServer((_HTTP_HOST, _HTTP_PORT), application).serve_forever()
+    WSGIServer(
+            (_HTTP_HOST, _HTTP_PORT),
+            application,
+            handler_class=WebSocketHandler).serve_forever()
 

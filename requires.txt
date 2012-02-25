@@ -1,0 +1,10 @@
+gevent==0.13.6
+greenlet==0.3.3
+gunicorn==0.13.4
+hiredis==0.1.0
+httplib2==0.7.2
+oauth2==1.5.211
+redis==2.4.11
+wsgiref==0.1.2
+hg+https://bitbucket.org/Jeffrey/gevent-websocket#egg=gevent-websocket
+hg+https://bitbucket.org/Jeffrey/gevent-socketio#egg=gevent-socketio

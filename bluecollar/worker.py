@@ -134,6 +134,7 @@ def child(func, args, kwargs, reply_to):
 
 
 def main():
+    """main event loop"""
     # catch redis errors and keyboard interrupts
     logging.info('Worker started')
     try:
@@ -215,7 +216,15 @@ def main():
                     instance = executable()
                     logging.debug('New instance: %s', instance)
                 # get the instance method we care about
-                func = getattr(instance, method.split('.')[-1])
+                if hasattr(instance, method.split('.')[-1]):
+                    func = getattr(instance, method.split('.')[-1])
+                else:
+                    logging.error('Failed to find class or function at %s',
+                        method)
+                    if reply_to:
+                        REDIS.rpush(reply_to, json.dumps(
+                            'Failed to find class or function at %s' % method))
+                    continue
             else:
                 # a normal function (outside a class)
                 func = executable
