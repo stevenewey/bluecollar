@@ -83,6 +83,7 @@ def application(env, start_response):
         start_response('200 OK', [
             ('Allow', 'GET, POST, PUT, DELETE, PATCH, OPTIONS'),
             ('Content-Length', 0),
+            ('Access-Control-Allow-Headers', '*'),
             ('Access-Control-Allow-Origin', '*')])
         return []
     # check cached methods, otherwise work forward through modules to find
@@ -136,6 +137,7 @@ def application(env, start_response):
             'Application did not respond in a timely fashion.',
             env, start_response)
     start_response('200 OK', [('Content-Type', 'application/json'),
+        ('Access-Control-Allow-Headers', '*'),
         ('Access-Control-Allow-Origin', '*')])
     return [response[1]]
 
