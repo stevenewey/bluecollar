@@ -57,6 +57,8 @@ _EXEC_CACHE = {}
 # greenlet threads
 _THREADS = []
 
+_JSON_HELPER = lambda data: data
+
 def clean_exit(*args):
     """Clean up on exit"""
     logging.info('User exited: %s', args)
@@ -106,7 +108,7 @@ def route_to_class_or_function(path, module=None):
                 submodule)
     return False
 
-def child(func, args, kwargs, reply_to):
+def child(func, args, kwargs, reply_to, json_helper):
     """Child function performs request function and handles response"""
     logging.debug('%s %s %s', func, args, kwargs)
     time_before = time.time()
@@ -115,7 +117,9 @@ def child(func, args, kwargs, reply_to):
     except Exception, message:
         # pass any exceptions from the function call to the reply channel
         if reply_to:
-            REDIS.rpush(reply_to, json.dumps(str(message)))
+            REDIS.rpush(
+                reply_to,
+                json.dumps(str(message), default=json_helper))
         raise
     time_after = time.time()
     if reply_to:
@@ -133,7 +137,7 @@ def child(func, args, kwargs, reply_to):
     logging.debug('%s executed in %s', func, time_after-time_before)
 
 
-def main():
+def main(json_helper = _JSON_HELPER):
     """main event loop"""
     # catch redis errors and keyboard interrupts
     logging.info('Worker started')
@@ -248,7 +252,8 @@ def main():
 
             # execute the function in a greenlet
             _THREADS.append(
-                gevent.Greenlet.spawn(child, func, args, kwargs, reply_to))
+                gevent.Greenlet.spawn(
+                    child, func, args, kwargs, reply_to, json_helper))
 
     except redis.exceptions.ConnectionError, message:
         # redis isn't there or went away
