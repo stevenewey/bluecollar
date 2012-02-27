@@ -19,6 +19,20 @@ class Calculator(Cacheable):
 
     def add(self, op1, op2=None):
         """Simple addition of two operators"""
+        if type(op1) is list:
+            op1 = op1[0]
+        if type(op2) is list:
+            op2 = op2[0]
+        op2 = int(op2) if op2 is not None else self.last_result
+        self.last_result = int(op1) + op2
+        return self.last_result
+
+    def http_get(self, op1, op2=None):
+        """Simple addition of two operators"""
+        if type(op1) is list:
+            op1 = op1[0]
+        if type(op2) is list:
+            op2 = op2[0]
         op2 = int(op2) if op2 is not None else self.last_result
         self.last_result = int(op1) + op2
         return self.last_result

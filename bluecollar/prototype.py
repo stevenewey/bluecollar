@@ -15,7 +15,7 @@ class Cacheable(object):
 
 class Resource(object):
     """Prototype REST-served resource"""
-    def list(self, args=None):
+    def http_get(self, args=None):
         """GET: Return a list of all instances"""
         args = args or []
 
@@ -24,17 +24,17 @@ class Resource(object):
         args = args or []
         item = Item(reference)
         if item:
-            return item.get(args)
+            return item.http_get(args)
 
-    def create(self, args=None):
+    def http_post(self, args=None):
         """POST: Create new item and return instance ref"""
         args = args or []
 
-    def save(self, args=None):
+    def http_put(self, args=None):
         """PUT: (update) fails here"""
         args = args or []
 
-    def delete(self, args=None):
+    def http_delete(self, args=None):
         """DELETE: Delete based on args (dangerous?)"""
         args = args or []
 
@@ -44,19 +44,19 @@ class Item(object):
         """Load item from DB (or empty item if no reference)"""
         pass
 
-    def get(self, args=None):
+    def http_get(self, args=None):
         """GET: Read data from item"""
         args = args or []
 
-    def save(self, args=None):
+    def http_put(self, args=None):
         """PUT: Write data to item"""
         args = args or []
 
-    def create(self, args=None):
+    def http_post(self, args=None):
         """POST: (create) fails here"""
         args = args or []
 
-    def delete(self, args=None):
+    def http_delete(self, args=None):
         """DELETE: delete instance"""
         args = args or []
 

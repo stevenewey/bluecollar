@@ -184,6 +184,7 @@ def main():
             args = request.get('args', [])
             kwargs = request.get('kwargs', {})
             reply_to = request.get('reply_channel', None)
+            no_exec = request.get('no_exec', None)
 
             # attempt to resolve the requested function
             # keeping a cache of them along the way
@@ -193,13 +194,17 @@ def main():
                 executable = route_to_class_or_function(
                     method)
                 _EXEC_CACHE[method] = executable
-                if not executable:
-                    logging.error('Failed to find class or function at %s',
-                        method)
-                    if reply_to:
-                        REDIS.rpush(reply_to, json.dumps(
-                            'Failed to find class or function at %s' % method))
-                    continue
+            if not executable:
+                logging.error('Failed to find class or function at %s',
+                    method)
+                if reply_to:
+                    REDIS.rpush(reply_to, json.dumps({
+                        'message' : \
+                            'Failed to find class or function at %s' % (
+                                method),
+                        'response_code' : 404,
+                        'error' : True}))
+                continue
 
             # instantiate if we're dealing with a class
             if type(executable) is type:
@@ -222,23 +227,30 @@ def main():
                     logging.error('Failed to find class or function at %s',
                         method)
                     if reply_to:
-                        REDIS.rpush(reply_to, json.dumps(
-                            'Failed to find class or function at %s' % method))
+                        REDIS.rpush(reply_to, json.dumps({
+                            'message' : \
+                                'Failed to find class or function at %s' % (
+                                    method),
+                            'response_code' : 404,
+                            'error' : True}))
                     continue
             else:
                 # a normal function (outside a class)
                 func = executable
+
+            # if no_exec, return just reference to object
+            if no_exec:
+                if reply_to:
+                    REDIS.rpush(reply_to, json.dumps({
+                        'found' : True,
+                        'ref' : str(func)}))
+                    continue
 
             # execute the function in a greenlet
             _THREADS.append(
                 gevent.Greenlet.spawn(child, func, args, kwargs, reply_to))
 
     except redis.exceptions.ConnectionError, message:
-        # redis isn't there or went away
-        # wait 5 secs before exit to not upset upstart
-        logging.error('Redis unavailable: %s', message)
-        time.sleep(5)
-        sys.exit(1)
         # redis isn't there or went away
         # wait 5 secs before exit to not upset upstart
         logging.error('Redis unavailable: %s', message)
