@@ -129,7 +129,8 @@ def application(env, start_response):
         return app_error(504,
             'Application did not respond in a timely fashion.',
             env, start_response)
-    start_response('200 OK', [('Content-Type', 'application/json')])
+    start_response('200 OK', [('Content-Type', 'application/json'),
+        ('Access-Control-Allow-Origin', '*')])
     return [response[1]]
 
 if __name__ == '__main__':
