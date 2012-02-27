@@ -119,12 +119,12 @@ def child(func, args, kwargs, reply_to, json_helper):
         if reply_to:
             REDIS.rpush(
                 reply_to,
-                json.dumps(str(message), default=json_helper))
+                json.dumps(str(message)))
         raise
     time_after = time.time()
     if reply_to:
         try:
-            REDIS.rpush(reply_to, json.dumps(response))
+            REDIS.rpush(reply_to, json.dumps(response, default=json_helper))
         except TypeError:
             logging.error('Unable to JSON encode response %s from %s',
                     response, func)
