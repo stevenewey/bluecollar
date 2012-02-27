@@ -82,7 +82,8 @@ def application(env, start_response):
     if http_method == 'options':
         start_response('200 OK', [
             ('Allow', 'GET, POST, PUT, DELETE, PATCH, OPTIONS'),
-            ('Content-Length', 0)])
+            ('Content-Length', 0),
+            ('Access-Control-Allow-Origin', '*')])
         return []
     # check cached methods, otherwise work forward through modules to find
     # a class with these methods
