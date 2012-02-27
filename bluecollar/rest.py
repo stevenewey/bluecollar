@@ -118,6 +118,11 @@ def application(env, start_response):
         return app_error(404,
             'No supported server method found.',
             env, start_response)
+    if http_method = 'options':
+        start_response('200 OK', [
+            ('Allow', 'GET, POST, PUT, DELETE, PATCH, OPTIONS'),
+            ('Content-Length', 0)])
+        return []
     bcenv.REDIS.rpush(bcenv.WORKER_QUEUE, json.dumps({
         'method' : '%s.http_%s' % (resource, http_method),
         'args' : args,
