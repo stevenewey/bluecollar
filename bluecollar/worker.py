@@ -19,7 +19,7 @@ import signal
 # thid party modules
 import gevent
 import gevent.monkey
-gevent.monkey.patch_socket()
+gevent.monkey.patch_all()
 import redis
 
 # bluecollar modules

@@ -24,7 +24,7 @@ import urllib
 # thid party modules
 import gevent
 import gevent.monkey
-gevent.monkey.patch_socket()
+gevent.monkey.patch_all()
 from gevent.pywsgi import WSGIServer
 from geventwebsocket.handler import WebSocketHandler
 
