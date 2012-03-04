@@ -61,8 +61,12 @@ def app_error(http_code, verbose_message, env, start_response):
 
 def application(env, start_response):
     """WSGI REST application"""
+    callback = None
     reply_channel = '%s_%s' % (_REPLY_PREFIX, uuid.uuid1().hex)
     kwargs = urlparse.parse_qs(env['QUERY_STRING'])
+    if kwargs.get('callback'):
+        callback = kwargs['callback'][0]
+        del kwargs['callback']
     http_method = kwargs.get('method') or env['REQUEST_METHOD'].lower()
     if not env['PATH_INFO'].startswith(_REQUEST_PREFIX):
         # doesn't look like this request is for us
@@ -139,6 +143,8 @@ def application(env, start_response):
     start_response('200 OK', [('Content-Type', 'application/json'),
         ('Access-Control-Allow-Headers', '*'),
         ('Access-Control-Allow-Origin', '*')])
+    if callback:
+        return ['%s(%s);' % (callback, response[1])]
     return [response[1]]
 
 if __name__ == '__main__':
