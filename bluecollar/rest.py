@@ -141,9 +141,9 @@ def application(env, start_response):
             'Application did not respond in a timely fashion.',
             env, start_response)
     if callback:
-        start_response('200 OK', [('Content-Type', 'text/javascript'),
+        start_response('200 OK', [('Content-Type', 'text/javascript')])
         return ['%s(%s);' % (callback, response[1])]
-    start_response('200 OK', [('Content-Type', 'application/json'),
+    start_response('200 OK', [('Content-Type', 'application/json')])
     return [response[1]]
 
 if __name__ == '__main__':
