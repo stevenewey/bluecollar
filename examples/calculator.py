@@ -4,6 +4,10 @@
 
     Simple calculator
 """
+
+# python standard lib
+import logging
+
 # third party modules
 import gevent
 

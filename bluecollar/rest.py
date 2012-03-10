@@ -7,9 +7,6 @@
     Use with gunicorn:
      gunicorn -b 127.0.0.1:8002 -k gevent bluecollar.rest:application
 
-    WebSocket Gunicorn:
-    gunicorn -k "geventwebsocket.gunicorn.workers.GeventWebSocketWorker" \
-        bluecollar.rest:application
 """
 
 # builtins
@@ -26,7 +23,6 @@ import gevent
 import gevent.monkey
 gevent.monkey.patch_all()
 from gevent.pywsgi import WSGIServer
-from geventwebsocket.handler import WebSocketHandler
 
 # bluecollar modules
 import bluecollar.worker as bcenv
@@ -83,13 +79,6 @@ def application(env, start_response):
             return app_error(406,
                 'Unsupported content type %s.' % extension[1:],
                 env, start_response)
-    if http_method == 'options':
-        start_response('200 OK', [
-            ('Allow', 'GET, POST, PUT, DELETE, PATCH, OPTIONS'),
-            ('Content-Length', 0),
-            ('Access-Control-Allow-Headers', 'Origin, X-Requested-With'),
-            ('Access-Control-Allow-Origin', '*')])
-        return []
     # check cached methods, otherwise work forward through modules to find
     # a class with these methods
     method_path = None
@@ -150,6 +139,5 @@ if __name__ == '__main__':
     logging.info('BlueCollar REST Server at %s:%d', _REST_HOST, _REST_PORT)
     WSGIServer(
             (_REST_HOST, _REST_PORT),
-            application,
-            handler_class=WebSocketHandler).serve_forever()
+            application).serve_forever()
 

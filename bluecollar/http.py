@@ -21,7 +21,6 @@ import gevent
 import gevent.monkey
 gevent.monkey.patch_all()
 from gevent.pywsgi import WSGIServer
-from geventwebsocket.handler import WebSocketHandler
 
 # bluecollar modules
 import bluecollar.worker as bcenv
@@ -87,6 +86,5 @@ if __name__ == '__main__':
     logging.info('BlueCollar HTTP Server at %s:%d', _HTTP_HOST, _HTTP_PORT)
     WSGIServer(
             (_HTTP_HOST, _HTTP_PORT),
-            application,
-            handler_class=WebSocketHandler).serve_forever()
+            application).serve_forever()
 
