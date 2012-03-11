@@ -21,6 +21,7 @@ import gevent
 import gevent.monkey
 gevent.monkey.patch_all()
 import redis
+import mmstats
 
 # bluecollar modules
 from bluecollar import prototype
@@ -58,6 +59,12 @@ _EXEC_CACHE = {}
 _THREADS = []
 
 _JSON_HELPER = lambda data: data
+
+class WorkerStats(mmstats.MmStats):
+    gthreads = mmstats.UInt64Field(label='gthreads')
+    requests = mmstats.CounterField(label='requests_processed')
+    errors = mmstats.CounterField(label='errors_raised')
+WORKER_STATS = WorkerStats(label_prefix='me.s-n.bluecollar.worker.')
 
 def clean_exit(*args):
     """Clean up on exit"""
@@ -157,6 +164,7 @@ def main(json_helper = _JSON_HELPER):
             for thread in _THREADS:
                 if thread.ready():
                     _THREADS.remove(thread)
+                    WORKER_STATS.gthreads -= 1
                     logging.debug('GC: %s', thread)
 
             # yield for outstanding threads
@@ -175,6 +183,7 @@ def main(json_helper = _JSON_HELPER):
             except ValueError:
                 logging.error('Invalid JSON for request: %s', request[1])
                 continue
+            WORKER_STATS.requests.inc()
 
             # request should be a dict and have a request key with list val
             if (type(request) is not dict or
@@ -254,6 +263,7 @@ def main(json_helper = _JSON_HELPER):
             _THREADS.append(
                 gevent.Greenlet.spawn(
                     child, func, args, kwargs, reply_to, json_helper))
+            WORKER_STATS.gthreads += 1
 
     except redis.exceptions.ConnectionError, message:
         # redis isn't there or went away

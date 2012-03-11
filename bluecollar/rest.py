@@ -23,6 +23,7 @@ import gevent
 import gevent.monkey
 gevent.monkey.patch_all()
 from gevent.pywsgi import WSGIServer
+import mmstats
 
 # bluecollar modules
 import bluecollar.worker as bcenv
@@ -39,6 +40,11 @@ _REQUEST_PREFIX = os.environ.get('BC_REST_PREFIX', '/')
 _REPLY_PREFIX = os.environ.get('BC_REST_REPLY_PREFIX', 'bc')
 _ERROR_DOC_URL = os.environ.get('BC_REST_ERROR_DOC_URL')
 _METHOD_CACHE = {}
+
+class RestStats(mmstats.MmStats):
+    requests_current = mmstats.UInt64Field(label='requests_in_progress')
+    requests_served = mmstats.CounterField(label='requests_served')
+REST_STATS = RestStats(label_prefix='me.s-n.bluecollar.rest.')
 
 def app_error(http_code, verbose_message, env, start_response):
     """Handle application errors"""
@@ -59,6 +65,8 @@ def application(env, start_response):
     """WSGI REST application"""
     callback = None
     reply_channel = '%s_%s' % (_REPLY_PREFIX, uuid.uuid1().hex)
+    REST_STATS.requests_current += 1
+    REST_STATS.requests_served.inc()
     kwargs = urlparse.parse_qs(env['QUERY_STRING'])
     if kwargs.get('callback'):
         callback = kwargs['callback'][0]
@@ -103,6 +111,7 @@ def application(env, start_response):
             }))
         response = bcenv.REDIS.blpop(reply_channel, _REQUEST_TIMEOUT)
         if not response:
+            REST_STATS.requests_current -= 1
             return app_error(504,
                 'Application did not respond in a timely fashion.',
                 env, start_response)
@@ -115,6 +124,7 @@ def application(env, start_response):
         else:
             _METHOD_CACHE[method_path] = False
     if not resource:
+        REST_STATS.requests_current -= 1
         return app_error(404,
             'No supported server method found.',
             env, start_response)
@@ -126,12 +136,15 @@ def application(env, start_response):
         }))
     response = bcenv.REDIS.blpop(reply_channel, _REQUEST_TIMEOUT)
     if not response:
+        REST_STATS.requests_current -= 1
         return app_error(504,
             'Application did not respond in a timely fashion.',
             env, start_response)
     if callback:
+        REST_STATS.requests_current -= 1
         start_response('200 OK', [('Content-Type', 'text/javascript')])
         return ['%s(%s);' % (callback, response[1])]
+    REST_STATS.requests_current -= 1
     start_response('200 OK', [('Content-Type', 'application/json')])
     return [response[1]]
 

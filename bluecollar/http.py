@@ -21,6 +21,7 @@ import gevent
 import gevent.monkey
 gevent.monkey.patch_all()
 from gevent.pywsgi import WSGIServer
+import mmstats
 
 # bluecollar modules
 import bluecollar.worker as bcenv
@@ -36,10 +37,17 @@ except ValueError, message:
 _REQUEST_PREFIX = os.environ.get('BC_HTTP_PREFIX', '/')
 _REPLY_PREFIX = os.environ.get('BC_HTTP_REPLY_PREFIX', 'bc')
 
+class HttpStats(mmstats.MmStats):
+    requests_current = mmstats.UInt64Field(label='requests_in_progress')
+    requests_served = mmstats.CounterField(label='requests_served')
+HTTP_STATS = HttpStats(label_prefix='me.s-n.bluecollar.http.')
+
 def application(env, start_response):
     """WSGI application"""
     error = None
     reply_channel = '%s_%s' % (_REPLY_PREFIX, uuid.uuid1().hex)
+    HTTP_STATS.requests_current += 1
+    HTTP_STATS.requests_served.inc()
     if env['REQUEST_METHOD'] == 'GET':
         # GET requests, work with path and args
         if env['PATH_INFO'].startswith(_REQUEST_PREFIX):
@@ -73,12 +81,15 @@ def application(env, start_response):
             if not response:
                 error = 'Timed out waiting for response.'
     else:
+        HTTP_STATS.requests_current -= 1
         start_response('501 Not Implemented', [('Content-Type', 'text/plain')])
         return ['501: Method not implemented. Only GET/POST are expected.']
     if error:
+        HTTP_STATS.requests_current -= 1
         start_response('500 Internal Server Error', [('Content-Type',
             'text/plain')])
         return ['500: %s' % error]
+    HTTP_STATS.requests_current -= 1
     start_response('200 OK', [('Content-Type','application/json')])
     return [response[1]]
 

@@ -24,6 +24,7 @@ import gevent.monkey
 gevent.monkey.patch_all()
 from gevent.pywsgi import WSGIServer
 import geventwebsocket
+import mmstats
 
 # bluecollar things
 import bluecollar.worker as bcenv
@@ -40,6 +41,13 @@ except ValueError, err:
     sys.exit(1)
 _WS_FALLBACK = os.environ.get('BC_WS_FALLBACK')
 _REPLY_PREFIX = os.environ.get('BC_WS_REPLY_PREFIX', 'bc')
+
+class WebSocketStats(mmstats.MmStats):
+    connections_handled = mmstats.CounterField(label='connections_handled')
+    connections_open = mmstats.UInt64Field(label='connections_open')
+    pubsub_connections = mmstats.UInt64Field(label='pubsub_connections')
+    pubsub_events = mmstats.CounterField(label='pubsub_events')
+WS_STATS = WebSocketStats(label_prefix='me.s-n.bluecollar.websocket.')
 
 class WebSocketApplication(object):
     """
@@ -60,9 +68,11 @@ class WebSocketApplication(object):
     def piper(self, websocket, client_id):
         logging.debug('Subcribe pipe started for %s', client_id)
         pubsub = self.clients[client_id]['pubsub']
+        WS_STATS.pubsub_connections += 1
         while client_id in self.clients:
             for message in pubsub.listen():
                 logging.debug('Message for %s', client_id)
+                WS_STATS.pubsub_events.inc()
                 websocket.send(json.dumps(message, self.json_helper))
             gevent.sleep()
         logging.debug('Leaving pipe for %s', client_id)
@@ -111,6 +121,7 @@ class WebSocketApplication(object):
             return ['WebSocket connection is expected here.']
         reply_channel = '%s_%s' % (_REPLY_PREFIX, uuid.uuid1().hex)
         logging.debug('Open socket for client %s', reply_channel)
+        WS_STATS.connections_open += 1
 
         try:
             while True:
@@ -145,9 +156,14 @@ class WebSocketApplication(object):
             if self.clients.get(reply_channel):
                 self.clients[reply_channel]['worker'].kill()
                 del self.clients[reply_channel]
+                WS_STATS.pubsub_connections -= 1
+            WS_STATS.connections_open -= 1
+            WS_STATS.connections_handled.inc()
             logging.debug('Closed socket for client %s', reply_channel)
 
         except geventwebsocket.WebSocketError, message:
+            WS_STATS.connections_open -= 1
+            WS_STATS.connections_handled.inc()
             logging.error('%s: %s', message.__class__.__name__, message)
 
 def start_application(application_class):
