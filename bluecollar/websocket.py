@@ -7,7 +7,7 @@
     Use with gunicorn:
      gunicorn -b 127.0.0.1:8003 \
         -k "geventwebsocket.gunicorn.workers.GeventWebSocketWorker" \
-        bluecollar.websocket:application
+        bluecollar.websocket:WebSocketApplication
 
 """
 
@@ -41,49 +41,122 @@ except ValueError, err:
 _WS_FALLBACK = os.environ.get('BC_WS_FALLBACK')
 _REPLY_PREFIX = os.environ.get('BC_WS_REPLY_PREFIX', 'bc')
 
-def application(env, start_response):
-    """WSGI WS Application"""
-    websocket = env.get('wsgi.websocket')
-    reply_channel = '%s_%s' % (_REPLY_PREFIX, uuid.uuid1().hex)
-    if websocket is None:
-        if _WS_FALLBACK == 'http':
-            return http_fallback(env, start_response)
-        elif _WS_FALLBACK == 'rest':
-            return rest_fallback(env, start_response)
-        start_response('400 Bad Request', [])
-        return ['WebSocket connection is expected here.']
+class WebSocketApplication(object):
+    """
+    BlueCollar Generic web socket handler process
+    Subclass to add pub/sub handling functionality
 
-    try:
-        while True:
-            message = websocket.receive()
-            if message is None:
-                break
-            try:
-                message = json.loads(message)
-            except ValueError:
-                websocket.send(json.dumps('Unable to JSON decode request.'))
-                continue
-            if type(message) is dict:
-                if type(message.get('subscribe')) is list:
-                    pass
-                else:
-                    message['reply_channel'] = reply_channel
-                    bcenv.REDIS.rpush(bcenv.WORKER_QUEUE,
-                            json.dumps(message))
-                    response = bcenv.REDIS.blpop(reply_channel,
-                            _REQUEST_TIMEOUT)
-                    if not response:
-                        websocket.send(json.dumps('Requested timed out.'))
-                        continue
-                    websocket.send(response[1])
-        websocket.close()
-    except geventwebsocket.WebSocketError, message:
-        logging.error('%s: %s', message.__class__.__name__, message)
+    """
 
+    def __init__(self):
+        self.clients = {}
 
-if __name__ == '__main__':
+    def json_helper(self, data):
+        return data
+
+    def authenticate_subscribe(self, websocket, client_id, channels):
+        return True
+
+    def piper(self, websocket, client_id):
+        logging.debug('Subcribe pipe started for %s', client_id)
+        pubsub = self.clients[client_id]['pubsub']
+        while client_id in self.clients:
+            for message in pubsub.listen():
+                logging.debug('Message for %s', client_id)
+                websocket.send(json.dumps(message, self.json_helper))
+            gevent.sleep()
+        logging.debug('Leaving pipe for %s', client_id)
+        pubsub.reset()
+
+    def subscribe(self, websocket, client_id, channels):
+        if self.authenticate_subscribe(websocket, client_id, channels):
+            if self.clients.get(client_id):
+                pubsub = self.clients[client_id]['pubsub']
+            else:
+                logging.debug('New PubSub connection for %s', client_id)
+                pubsub = bcenv.REDIS.pubsub()
+                self.clients[client_id] = {
+                        'pubsub' : pubsub,
+                        'channels' : [],
+                        'worker' : None,
+                        }
+                self.clients[client_id]['worker'] = gevent.Greenlet.spawn(
+                        self.piper, websocket, client_id)
+            pubsub.subscribe(channels)
+            self.clients[client_id]['channels'] = pubsub.channels
+            logging.debug('Client %s now subscribed to %s',
+                    client_id, pubsub.channels)
+
+    def unsubscribe(self, websocket, client_id, channels):
+        client = self.clients.get(client_id)
+        if not client:
+            logging.error('Non-existent client tried to unsubscribe: %s',
+                    client_id)
+            return False
+        client['pubsub'].unsubscribe(channels)
+        client['channels'] = client['pubsub'].channels
+        logging.debug('Client %s now subscribed to %s',
+                client_id, client['pubsub'].channels)
+        return True
+
+    def __call__(self, env, start_response):
+        """WSGI WS Application"""
+        websocket = env.get('wsgi.websocket')
+        if websocket is None:
+            if _WS_FALLBACK == 'http':
+                return http_fallback(env, start_response)
+            elif _WS_FALLBACK == 'rest':
+                return rest_fallback(env, start_response)
+            start_response('400 Bad Request', [])
+            return ['WebSocket connection is expected here.']
+        reply_channel = '%s_%s' % (_REPLY_PREFIX, uuid.uuid1().hex)
+        logging.debug('Open socket for client %s', reply_channel)
+
+        try:
+            while True:
+                message = websocket.receive()
+                if message is None:
+                    break
+                try:
+                    message = json.loads(message)
+                except ValueError:
+                    websocket.send(
+                            json.dumps('Unable to JSON decode request.'))
+                    continue
+                if type(message) is dict:
+                    if type(message.get('subscribe')) is list:
+                        self.subscribe(websocket, reply_channel,
+                                message['subscribe'])
+                    elif type(message.get('unsubscribe')) is list:
+                        self.unsubscribe(websocket, reply_channel,
+                                message['unsubscribe'])
+                    else:
+                        message['reply_channel'] = reply_channel
+                        bcenv.REDIS.rpush(bcenv.WORKER_QUEUE,
+                                json.dumps(message))
+                        response = bcenv.REDIS.blpop(reply_channel,
+                                _REQUEST_TIMEOUT)
+                        if not response:
+                            websocket.send(
+                                    json.dumps('Requested timed out.'))
+                            continue
+                        websocket.send(response[1])
+            websocket.close()
+            if self.clients.get(reply_channel):
+                self.clients[reply_channel]['worker'].kill()
+                del self.clients[reply_channel]
+            logging.debug('Closed socket for client %s', reply_channel)
+
+        except geventwebsocket.WebSocketError, message:
+            logging.error('%s: %s', message.__class__.__name__, message)
+
+def start_application(application_class):
     logging.info('BlueCollar WebSocket Server at %s:%d', _WS_HOST, _WS_PORT)
     WSGIServer(
             (_WS_HOST, _WS_PORT),
-            application,
+            application_class(),
             handler_class=geventwebsocket.WebSocketHandler).serve_forever()
+
+if __name__ == '__main__':
+    start_application(WebSocketApplication)
+
