@@ -90,9 +90,12 @@ class WebSocketApplication(object):
                         'channels' : [],
                         'worker' : None,
                         }
-                self.clients[client_id]['worker'] = gevent.Greenlet.spawn(
-                        self.piper, websocket, client_id)
+            if self.clients[client_id].get('worker'):
+                # have to kill any existing greenlet to avoid socket error
+                self.clients[client_id]['worker'].kill()
             pubsub.subscribe(channels)
+            self.clients[client_id]['worker'] = gevent.Greenlet.spawn(
+                    self.piper, websocket, client_id)
             self.clients[client_id]['channels'] = pubsub.channels
             logging.debug('Client %s now subscribed to %s',
                     client_id, pubsub.channels)
@@ -103,7 +106,10 @@ class WebSocketApplication(object):
             logging.error('Non-existent client tried to unsubscribe: %s',
                     client_id)
             return False
+        client['worker'].kill()
         client['pubsub'].unsubscribe(channels)
+        client['worker'] = gevent.Greenlet.spawn(
+                self.piper, websocket, client_id)
         client['channels'] = client['pubsub'].channels
         logging.debug('Client %s now subscribed to %s',
                 client_id, client['pubsub'].channels)
