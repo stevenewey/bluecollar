@@ -107,6 +107,10 @@ class WebSocketApplication(object):
                     client_id)
             return False
         client['worker'].kill()
+        if channels == []:
+            client['pubsub'].reset()
+            del self.clients[client_id]
+            return True
         client['pubsub'].unsubscribe(channels)
         client['worker'] = gevent.Greenlet.spawn(
                 self.piper, websocket, client_id)

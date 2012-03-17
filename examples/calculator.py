@@ -13,6 +13,7 @@ import gevent
 
 # import the Cacheble prototype
 from bluecollar.prototype import Cacheable
+from bluecollar.auth import authenticate
 
 class Calculator(Cacheable):
     """Simple calculator functions"""
@@ -21,7 +22,8 @@ class Calculator(Cacheable):
         """We'll keep the last result around"""
         self.last_result = 0
 
-    def add(self, op1, op2=None):
+    @authenticate(stop_on_fail=True)
+    def add(self, op1, op2=None, auth=None):
         """Simple addition of two operators"""
         if type(op1) is list:
             op1 = op1[0]
