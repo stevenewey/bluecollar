@@ -108,7 +108,6 @@ class WebSocketApplication(object):
             return False
         client['worker'].kill()
         if channels == []:
-            client['pubsub'].reset()
             del self.clients[client_id]
             return True
         client['pubsub'].unsubscribe(channels)
