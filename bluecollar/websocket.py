@@ -17,6 +17,7 @@ import json
 import logging
 import sys
 import uuid
+import urlparse
 
 # third party modules
 import gevent
@@ -25,6 +26,7 @@ gevent.monkey.patch_all()
 from gevent.pywsgi import WSGIServer
 import geventwebsocket
 import mmstats
+import socket
 
 # bluecollar things
 import bluecollar.worker as bcenv
@@ -41,6 +43,7 @@ except ValueError, err:
     sys.exit(1)
 _WS_FALLBACK = os.environ.get('BC_WS_FALLBACK')
 _REPLY_PREFIX = os.environ.get('BC_WS_REPLY_PREFIX', 'bc')
+_WS_SKIP_LONGPOLLING = os.environ.get('BC_WS_SKIP_LONGPOLLING', False)
 
 class WebSocketStats(mmstats.MmStats):
     connections_handled = mmstats.CounterField(label='connections_handled')
@@ -63,6 +66,9 @@ class WebSocketApplication(object):
         return data
 
     def authenticate_subscribe(self, websocket, client_id, channels):
+        return True
+
+    def authenticate_subscribe_xhr(self, start_response, kwargs, channels):
         return True
 
     def piper(self, websocket, client_id):
@@ -118,10 +124,40 @@ class WebSocketApplication(object):
                 client_id, client['pubsub'].channels)
         return True
 
+    def xhr_long_polling(self, env, start_response):
+        if env['REQUEST_METHOD'] == 'POST':
+            try:
+                kwargs = json.loads(env['wsgi.input'].read())
+            except ValueError:
+                start_response('400 Bad Request', [])
+                yield ['POST requests must contain JSON data.']
+                return
+        else:
+            kwargs = urlparse.parse_qs(env['QUERY_STRING'])
+        if not kwargs.get('subscribe'):
+            start_response('400 Bad Request', [])
+            yield ['Long polling requests are only supported for PubSub.']
+            return
+        client_id = '%s_%s' % (_REPLY_PREFIX, uuid.uuid1().hex)
+        channels = kwargs['subscribe']
+        if self.authenticate_subscribe_xhr(start_response, kwargs, channels):
+            pubsub = bcenv.REDIS.pubsub()
+            pubsub.subscribe(channels)
+            logging.debug('Long polling client %s subscribed to %s',
+                    client_id, channels)
+            start_response('200 OK', [('Content-Type', 'application/json')])
+            while True:
+                for message in pubsub.listen():
+                    logging.debug('Message for %s', client_id)
+                    yield json.dumps(message, self.json_helper)
+            pubsub.reset()
+
     def __call__(self, env, start_response):
         """WSGI WS Application"""
         websocket = env.get('wsgi.websocket')
         if websocket is None:
+            if not _WS_SKIP_LONGPOLLING and env['PATH_INFO'][-5:] == '/xhr/':
+                return self.xhr_long_polling(env, start_response)
             if _WS_FALLBACK == 'http':
                 return http_fallback(env, start_response)
             elif _WS_FALLBACK == 'rest':
