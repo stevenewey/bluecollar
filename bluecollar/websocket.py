@@ -130,14 +130,12 @@ class WebSocketApplication(object):
                 kwargs = json.loads(env['wsgi.input'].read())
             except ValueError:
                 start_response('400 Bad Request', [])
-                yield ['POST requests must contain JSON data.']
-                return
+                return ['POST requests must contain JSON data.']
         else:
             kwargs = urlparse.parse_qs(env['QUERY_STRING'])
         if not kwargs.get('subscribe'):
             start_response('400 Bad Request', [])
-            yield ['Long polling requests are only supported for PubSub.']
-            return
+            return ['Long polling requests are only supported for PubSub.']
         client_id = '%s_%s' % (_REPLY_PREFIX, uuid.uuid1().hex)
         channels = kwargs['subscribe']
         if self.authenticate_subscribe_xhr(start_response, kwargs, channels):
@@ -145,11 +143,19 @@ class WebSocketApplication(object):
             pubsub.subscribe(channels)
             logging.debug('Long polling client %s subscribed to %s',
                     client_id, channels)
-            start_response('200 OK', [('Content-Type', 'application/json')])
+            if kwargs.get('callback'):
+                start_response('200 OK', [('Content-Type', 'text/html')])
+            else:
+                start_response('200 OK', [('Content-Type', 'application/json')])
             while True:
                 for message in pubsub.listen():
                     logging.debug('Message for %s', client_id)
-                    yield json.dumps(message, self.json_helper)
+                    if kwargs.get('callback'):
+                        return ['<script type="text/javascript">' + \
+                            '%s(%s);</script>\n' % (kwargs['callback'][0],
+                                json.dumps(message, self.json_helper))]
+                    else:
+                        return [json.dumps(message, self.json_helper)]
             pubsub.reset()
 
     def __call__(self, env, start_response):
