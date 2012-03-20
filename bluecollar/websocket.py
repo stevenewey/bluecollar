@@ -144,7 +144,7 @@ class WebSocketApplication(object):
             logging.debug('Long polling client %s subscribed to %s',
                     client_id, channels)
             if kwargs.get('callback'):
-                start_response('200 OK', [('Content-Type', 'text/html')])
+                start_response('200 OK', [('Content-Type', 'text/javascript')])
             else:
                 start_response('200 OK', [('Content-Type', 'application/json')])
             while True:
