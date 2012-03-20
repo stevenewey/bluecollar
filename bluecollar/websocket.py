@@ -151,8 +151,7 @@ class WebSocketApplication(object):
                 for message in pubsub.listen():
                     logging.debug('Message for %s', client_id)
                     if kwargs.get('callback'):
-                        return ['<script type="text/javascript">' + \
-                            '%s(%s);</script>\n' % (kwargs['callback'][0],
+                        return ['%s(%s);' % (kwargs['callback'][0],
                                 json.dumps(message, self.json_helper))]
                     else:
                         return [json.dumps(message, self.json_helper)]
