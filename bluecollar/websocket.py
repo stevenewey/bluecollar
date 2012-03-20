@@ -149,6 +149,9 @@ class WebSocketApplication(object):
                 start_response('200 OK', [('Content-Type', 'application/json')])
             while True:
                 for message in pubsub.listen():
+                    if message.type != 'message':
+                        logging.debug('Skipping non-message for %s', client_id)
+                        continue
                     logging.debug('Message for %s', client_id)
                     if kwargs.get('callback'):
                         return ['%s(%s);' % (kwargs['callback'][0],
