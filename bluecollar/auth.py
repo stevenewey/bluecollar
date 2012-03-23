@@ -17,7 +17,7 @@ class authenticate(object):
     def __init__(self, stop_on_fail=True):
         self._stop_on_fail = stop_on_fail
 
-    def __call__(self, fn):
+    def __call__(self, fn, *args, **kwargs):
         def wrapped(*args, **kwargs):
             auth = self.authenticate(kwargs)
             if self._stop_on_fail and auth.get('authenticated') is not True:
