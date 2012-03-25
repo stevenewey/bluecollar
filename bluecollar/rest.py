@@ -72,6 +72,9 @@ def application(env, start_response):
                     env['HTTP_ACCESS_CONTROL_REQUEST_HEADERS']))
         start_response('200 OK', response_headers)
         return []
+    if http_method == 'post':
+        post_data = env['wsgi.input'].read()
+        kwargs.update(urlparse.parse_qs(post_data))
     if not env['PATH_INFO'].startswith(_REQUEST_PREFIX):
         # doesn't look like this request is for us
         return app_error(404,
