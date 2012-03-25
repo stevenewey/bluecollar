@@ -64,6 +64,14 @@ def application(env, start_response):
         callback = kwargs['callback'][0]
         del kwargs['callback']
     http_method = kwargs.get('method') or env['REQUEST_METHOD'].lower()
+    if http_method == 'options':
+        response_headers = [('Access-Control-Allow-Origin', '*')]
+        if env.get('HTTP_ACCESS_CONTROL_REQUEST_HEADERS'):
+            response_headers.append(
+                ('Access-Control-Allow-Headers',
+                    env['HTTP_ACCESS_CONTROL_REQUEST_HEADERS']))
+        start_response('200 OK', response_headers)
+        return []
     if not env['PATH_INFO'].startswith(_REQUEST_PREFIX):
         # doesn't look like this request is for us
         return app_error(404,
@@ -132,7 +140,8 @@ def application(env, start_response):
     if callback:
         start_response('200 OK', [('Content-Type', 'text/javascript')])
         return ['%s(%s);' % (callback, response[1])]
-    start_response('200 OK', [('Content-Type', 'application/json')])
+    start_response('200 OK', [('Content-Type', 'application/json'),
+        ('Access-Control-Allow-Origin', '*')])
     return [response[1]]
 
 if __name__ == '__main__':
