@@ -107,7 +107,7 @@ def route_to_class_or_function(path, module=None):
             submodule = __import__(
                     '%s%s' % (full_path, items[0]),
                     fromlist=[str(items[1])])
-        except ImportError:
+        except ImportError, ValueError:
             pass
         if submodule:
             return route_to_class_or_function(
