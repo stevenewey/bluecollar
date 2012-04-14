@@ -47,7 +47,7 @@ try:
 except ValueError, message:
     logging.error(message)
     sys.exit(1)
-REDIS = redis.Redis(REDIS_HOST, REDIS_PORT, REDIS_DB)
+REDIS = redis.StrictRedis(REDIS_HOST, REDIS_PORT, REDIS_DB)
 WORKER_QUEUE = os.environ.get('BC_QUEUE', 'list_bcqueue')
 WORKER_LIST = os.environ.get('BC_WORKERLIST', 'list_bcworkers')
 
