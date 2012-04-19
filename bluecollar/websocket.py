@@ -26,6 +26,7 @@ gevent.monkey.patch_all()
 from gevent.pywsgi import WSGIServer
 import geventwebsocket
 import mmstats
+import redis
 
 # bluecollar things
 import bluecollar.worker as bcenv
@@ -37,11 +38,15 @@ _WS_HOST = os.environ.get('BC_WS_HOST', '0.0.0.0')
 try:
     _WS_PORT = abs(int(os.environ.get('BC_WS_PORT', 8003)))
     _REQUEST_TIMEOUT = abs(int(os.environ.get('BC_WS_TIMEOUT', 300)))
+    _WS_REDISPORT = abs(int(os.environ.get('BC_WS_REDISPORT',
+        bcenv.REDIS_PORT)))
+    _WS_REDISDB = abs(int(os.environ.get('BC_WS_REDISDB', bcenv.REDIS_DB)))
 except ValueError, err:
     logging.error(err)
     sys.exit(1)
 _WS_FALLBACK = os.environ.get('BC_WS_FALLBACK')
 _REPLY_PREFIX = os.environ.get('BC_WS_REPLY_PREFIX', 'bc')
+_WS_REDISHOST = os.environ.get('BC_WS_REDISHOST', bcenv.REDIS_HOST)
 
 class WebSocketStats(mmstats.MmStats):
     connections_handled = mmstats.CounterField(label='connections_handled')
@@ -59,6 +64,7 @@ class WebSocketApplication(object):
 
     def __init__(self):
         self.clients = {}
+        self._REDIS = redis.Redis(_WS_REDISHOST, _WS_REDISPORT, _WS_REDISDB)
 
     def json_helper(self, data):
         return data
@@ -85,7 +91,7 @@ class WebSocketApplication(object):
                 pubsub = self.clients[client_id]['pubsub']
             else:
                 logging.debug('New PubSub connection for %s', client_id)
-                pubsub = bcenv.REDIS.pubsub()
+                pubsub = self._REDIS.pubsub()
                 self.clients[client_id] = {
                         'pubsub' : pubsub,
                         'channels' : [],
