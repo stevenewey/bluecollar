@@ -22,7 +22,6 @@ class Calculator(Cacheable):
         """We'll keep the last result around"""
         self.last_result = 0
 
-    @authenticate(stop_on_fail=True)
     def add(self, op1, op2=None, auth=None):
         """Simple addition of two operators"""
         if type(op1) is list:

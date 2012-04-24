@@ -17,6 +17,7 @@ import urlparse
 import sys
 import uuid
 import urllib
+import zlib
 
 # thid party modules
 import gevent
@@ -140,12 +141,20 @@ def application(env, start_response):
         return app_error(504,
             'Application did not respond in a timely fashion.',
             env, start_response)
+    reply = response[1]
+    headers = [('Access-Control-Allow-Origin', '*')]
     if callback:
-        start_response('200 OK', [('Content-Type', 'text/javascript')])
-        return ['%s(%s);' % (callback, response[1])]
-    start_response('200 OK', [('Content-Type', 'application/json'),
-        ('Access-Control-Allow-Origin', '*')])
-    return [response[1]]
+        reply = '%s(%s);' % (callback, response[1])
+        headers.append(('Content-Type', 'text/javascript'))
+    else:
+        headers.append(('Content-Type', 'application/json'))
+    if 'deflate' in env.get('HTTP_ACCEPT_ENCODING', '').split(','):
+        reply = zlib.compress(reply)
+        headers += [
+                ('Content-Encoding', 'deflate'),
+                ('Content-Length', len(reply))]
+    start_response('200 OK', headers)
+    return [reply]
 
 if __name__ == '__main__':
     logging.info('BlueCollar REST Server at %s:%d', _REST_HOST, _REST_PORT)
