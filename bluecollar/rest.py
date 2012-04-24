@@ -148,7 +148,7 @@ def application(env, start_response):
         headers.append(('Content-Type', 'text/javascript'))
     else:
         headers.append(('Content-Type', 'application/json'))
-    if 'deflate' in env.get('HTTP_ACCEPT_ENCODING', '').split(','):
+    if True or 'deflate' in env.get('HTTP_ACCEPT_ENCODING', '').split(','):
         reply = zlib.compress(reply)
         headers += [
                 ('Content-Encoding', 'deflate'),
