@@ -77,7 +77,7 @@ class WebSocketApplication(object):
         return True
 
     def piper(self, websocket, client_id):
-        logging.debug('Subcribe pipe started for %s', client_id)
+        logging.debug('Subscribe pipe started for %s', client_id)
         pubsub = self.clients[client_id]['pubsub']
         WS_STATS.pubsub_connections += 1
         while client_id in self.clients:
@@ -138,7 +138,7 @@ class WebSocketApplication(object):
                 return ['POST request must contain JSON data.']
         else:
             kwargs = urlparse.parse_qs(env['QUERY_STRING'])
-        if not kwargs.get('subcribe'):
+        if not kwargs.get('subscribe'):
             start_response('400 Bad Request', [])
             return ['Long polling requests are only suppoered for PubSub.']
         client_id = '%s_%s' % (_REPLY_PREFIX, uuid.uuid1().hex)
