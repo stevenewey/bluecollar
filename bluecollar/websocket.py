@@ -159,7 +159,7 @@ class WebSocketApplication(object):
                         continue
                     logging.debug('Message for %s', client_id)
                     if kwargs.get('callback'):
-                        return ['%s(%s;' % (kwargs['callback'][0],
+                        return ['%s(%s);' % (kwargs['callback'][0],
                             json.dumps(message, self.json_helper))]
                     else:
                         return [json.dumps(message, self.json_heler)]
