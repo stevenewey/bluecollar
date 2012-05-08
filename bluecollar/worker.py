@@ -19,6 +19,7 @@ import signal
 # thid party modules
 import gevent
 import gevent.monkey
+import gevent.pool
 gevent.monkey.patch_all()
 import redis
 import mmstats
