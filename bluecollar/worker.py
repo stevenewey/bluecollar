@@ -44,12 +44,15 @@ try:
     REDIS_DB = int(os.environ.get('BC_REDISDB', 0))
     if REDIS_DB < 0 or REDIS_DB > 15:
         raise ValueError("Redis DBs must be 0-15.")
+    WORKER_THREADS = abs(int(os.environ.get('BC_WORKER_THREADS', 10)))
 except ValueError, message:
     logging.error(message)
     sys.exit(1)
 REDIS = redis.StrictRedis(REDIS_HOST, REDIS_PORT, REDIS_DB)
 WORKER_QUEUE = os.environ.get('BC_QUEUE', 'list_bcqueue')
 WORKER_LIST = os.environ.get('BC_WORKERLIST', 'list_bcworkers')
+WORKER_STATS_LABEL = os.environ.get('BC_WORKER_STATSLABEL',
+    'me.s-n.bluecollar.worker.')
 
 # instance cache for reusable classes
 _INST_CACHE = {}
@@ -64,7 +67,7 @@ class WorkerStats(mmstats.MmStats):
     gthreads = mmstats.UInt64Field(label='gthreads')
     requests = mmstats.CounterField(label='requests_processed')
     errors = mmstats.CounterField(label='errors_raised')
-WORKER_STATS = WorkerStats(label_prefix='me.s-n.bluecollar.worker.')
+WORKER_STATS = WorkerStats(label_prefix=WORKER_STATS_LABEL)
 
 def clean_exit(*args):
     """Clean up on exit"""
@@ -151,6 +154,7 @@ def main(json_helper = _JSON_HELPER):
     try:
         REDIS.sadd(WORKER_LIST, _PID)
         # main loop
+        worker_pool = gevent.pool.Pool(WORKER_THREADS)
         while True:
             # if we're no longer welcome, break out of the main loop
             if not REDIS.sismember(WORKER_LIST, _PID):
@@ -261,7 +265,7 @@ def main(json_helper = _JSON_HELPER):
 
             # execute the function in a greenlet
             _THREADS.append(
-                gevent.Greenlet.spawn(
+                worker_pool.spawn(
                     child, func, args, kwargs, reply_to, json_helper))
             WORKER_STATS.gthreads += 1
 
