@@ -23,6 +23,7 @@ import gevent.pool
 gevent.monkey.patch_all()
 import redis
 import mmstats
+from gevent.backdoor import BackdoorServer
 
 # bluecollar modules
 from bluecollar import prototype
@@ -46,6 +47,7 @@ try:
     if REDIS_DB < 0 or REDIS_DB > 15:
         raise ValueError("Redis DBs must be 0-15.")
     WORKER_THREADS = abs(int(os.environ.get('BC_WORKER_THREADS', 10)))
+    BACKDOOR_PORT = abs(int(os.environ.get('BC_BACKDOOR_PORT', 0)))
 except ValueError, message:
     logging.error(message)
     sys.exit(1)
@@ -152,6 +154,11 @@ def main(json_helper = _JSON_HELPER):
     """main event loop"""
     # catch redis errors and keyboard interrupts
     logging.info('Worker started')
+    if BACKDOOR_PORT:
+        backdoor = BackdoorServer(('127.0.0.1', BACKDOOR_PORT),
+                dict(globals()))
+        logging.info('Backdoor server at 127.0.0.1:%d', BACKDOOR_PORT)
+        backdoor.start()
     try:
         REDIS.sadd(WORKER_LIST, _PID)
         # main loop
